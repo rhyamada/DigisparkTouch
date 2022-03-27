@@ -4,11 +4,11 @@
  * TODO: Make a proper file header. :-)
  * Modified for Digispark by Digistump
  * And now modified by Sean Murphy (duckythescientist) from a keyboard device to a mouse device
- * Most of the credit for the joystick code should go to Raphaël Assénat
+ * Most of the credit for the joystick code should go to Raphaï¿½l Assï¿½nat
  * And now mouse credit is due to Yiyin Ma and Abby Lin of Cornell
  */
-#ifndef __DigiMouse_h__
-#define __DigiMouse_h__
+#ifndef __DigiTouch_h__
+#define __DigiTouch_h__
  
 #define REPORT_SIZE 4
 
@@ -50,9 +50,9 @@ static unsigned char last_sent_report[REPORT_SIZE];
 uchar		 reportBuffer[REPORT_SIZE];
 
 // report frequency set to default of 50hz
-#define DIGIMOUSE_DEFAULT_REPORT_INTERVAL 20
+#define DIGITOUCH_DEFAULT_REPORT_INTERVAL 20
 static unsigned char must_report = 0;
-static unsigned char idle_rate = DIGIMOUSE_DEFAULT_REPORT_INTERVAL / 4; // in units of 4ms
+static unsigned char idle_rate = DIGITOUCH_DEFAULT_REPORT_INTERVAL / 4; // in units of 4ms
 // new minimum report frequency system:
 static unsigned long last_report_time = 0;
 
@@ -147,9 +147,9 @@ void clearMove() {
 
 
  
-class DigiMouseDevice {
+class DigiTouchDevice {
  public:
-	DigiMouseDevice () {
+	DigiTouchDevice () {
 
 		rt_usbHidReportDescriptor = mouse_usbHidReportDescriptor;
 		rt_usbHidReportDescriptorSize = sizeof(mouse_usbHidReportDescriptor);
@@ -275,8 +275,8 @@ class DigiMouseDevice {
 	// what does this even mean? -- Bluebie
 };
 
-// create the global singleton DigiMouse
-DigiMouseDevice DigiMouse = DigiMouseDevice();
+// create the global singleton DigiTouch
+DigiTouchDevice DigiTouch = DigiTouchDevice();
 
 
 #ifdef __cplusplus
@@ -335,4 +335,4 @@ extern "C"{
 #endif
 
 
-#endif // __DigiMouse_h__
+#endif // __DigiTouch_h__

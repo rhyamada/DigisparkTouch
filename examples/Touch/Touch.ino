@@ -2,7 +2,7 @@
 // CAUTION!!!! This does click things!!!!!!!!
 // Originally created by Sean Murphy (duckythescientist)
 
-#include <DigiMouse.h>
+#include <DigiTouch.h>
 
 void setup() {
   DigiMouse.begin(); //start or reenumerate USB - BREAKING CHANGE from old versions that didn't require this

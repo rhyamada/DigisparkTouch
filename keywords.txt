@@ -1,4 +1,4 @@
-DigiMouse KEYWORD1
+DigiTouch KEYWORD1
 update KEYWORD2
 moveX KEYWORD2
 moveY KEYWORD2
