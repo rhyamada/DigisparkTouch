@@ -10,8 +10,6 @@
 #ifndef __DigiTouch_h__
 #define __DigiTouch_h__
  
-#define REPORT_SIZE 4
-
 #include <Arduino.h>
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
@@ -25,75 +23,71 @@
 //#include "devdesc.h"
 #include "oddebug.h"
 #include "usbconfig.h"
-
-static const uchar *rt_usbHidReportDescriptor = NULL;
-static uchar rt_usbHidReportDescriptorSize = 0;
-static const uchar *rt_usbDeviceDescriptor = NULL;
-static uchar rt_usbDeviceDescriptorSize = 0;
-
-#define MOUSEBTN_LEFT_MASK		0x01
-#define MOUSEBTN_RIGHT_MASK		0x02
-#define MOUSEBTN_MIDDLE_MASK	0x04
-
-// TODO: Work around Arduino 12 issues better.
-//#include <WConstants.h>
-//#undef int()
-
-typedef uint8_t byte;
-
-/* What was most recently read from the controller */
-static unsigned char last_built_report[REPORT_SIZE];
-
-/* What was most recently sent to the host */
-static unsigned char last_sent_report[REPORT_SIZE];
-
-uchar		 reportBuffer[REPORT_SIZE];
-
+#include "hidmacros.h"
 // report frequency set to default of 50hz
 #define DIGITOUCH_DEFAULT_REPORT_INTERVAL 20
-static unsigned char must_report = 0;
 static unsigned char idle_rate = DIGITOUCH_DEFAULT_REPORT_INTERVAL / 4; // in units of 4ms
-// new minimum report frequency system:
-static unsigned long last_report_time = 0;
 
+// https://docs.microsoft.com/en-us/windows-hardware/design/component-guidelines/touchscreen-required-hid-top-level-collections
+// https://docs.microsoft.com/en-us/windows-hardware/design/component-guidelines/pen-sample-report-descriptors
+const PROGMEM unsigned char touch_usbHidReportDescriptor[] = { /* USB report descriptor */
+	USAGE_PAGE(USAGE_PAGE_DIGITIZERS),
+	USAGE(USAGE_TOUCH_SCREEN),
+	COLLECTION(COLLECTION_APPLICATION),
+		USAGE(USAGE_STYLUS),
+		COLLECTION(COLLECTION_LOGICAL),
+			LOGICAL_MINIMUM_8(0),
+			LOGICAL_MAXIMUM_8(1),
+			USAGE(USAGE_TIP),
+			USAGE(USAGE_IN_RANGE),
+			REPORT_SIZE(1),
+			REPORT_COUNT(2),
+			INPUT_DATA_VAR_ABS(),
+			
+			REPORT_COUNT(1),
+			REPORT_SIZE(6),
+			PADDING(),
+			
+			USAGE_PAGE(USAGE_PAGE_DESKTOP),
+			UNIT_EXPOENT(),
+			UNIT(),
+			PHYSICAL_MINIMUM_8(0),
+			LOGICAL_MAXIMUM_16(10000),
+			REPORT_SIZE(16),
 
-char usb_hasCommed = 0;
+			PHYSICAL_MAXIMUM_16(10000),
+			USAGE(USAGE_X),
+			INPUT_DATA_VAR_ABS(),
+			USAGE(USAGE_Y),
+			INPUT_DATA_VAR_ABS(),
 
-const PROGMEM unsigned char mouse_usbHidReportDescriptor[] = { /* USB report descriptor */
-		0x05, 0x01,										 // USAGE_PAGE (Generic Desktop)
-		0x09, 0x02,										 // USAGE (Mouse)
-		0xa1, 0x01,										 // COLLECTION (Application)
-		0x09, 0x01,										 //		USAGE_PAGE (Pointer)
-		0xa1, 0x00,										 //		COLLECTION (Physical)
-		0x05, 0x09,										 //		USAGE_PAGE (Button)
-		0x19, 0x01,										 //		USAGE_MINIMUM (Button 1)
-		0x29, 0x03,										 //		USAGE_MAXIMUM (Button 3)
-		0x15, 0x00,										 //		LOGICAL_MINIMUM (0)
-		0x25, 0x01,										 //		LOGICAL_MAXIMUM (1)
-		0x95, 0x03,										 //		REPORT_COUNT (3)
-		0x75, 0x01,										 //		REPORT_SIZE (1)
-		0x81, 0x02,										 //		INPUT (Data,Var,Abs)
-		0x95, 0x01,										 //		REPORT_COUNT (1)
-		0x75, 0x05,										 //		REPORT_SIZE (5)
-		0x81, 0x01,										 //		Input(Cnst)
-		0x05, 0x01,										 //		USAGE_PAGE(Generic Desktop)
-		0x09, 0x30,										 //		USAGE(X)
-		0x09, 0x31,										 //		USAGE(Y)
-		0x15, 0x81,										 //		LOGICAL_MINIMUM (-127)
-		0x25, 0x7f,										 //		LOGICAL_MAXIMUM (127)
-		0x75, 0x08,										 //		REPORT_SIZE (8)
-		0x95, 0x02,										 //		REPORT_COUNT (2)
-		0x81, 0x06,										 //		INPUT (Data,Var,Rel)
-		0x09, 0x38,											//	 Usage (Wheel)
-		0x95, 0x01,											//	 Report Count (1),
-		0x81, 0x06,											//	 Input (Data, Variable, Relative)
-		0xc0,														// END_COLLECTION
-		0xc0													 // END_COLLECTION
+		END_COLLECTION(),
+	END_COLLECTION()
 };
+//char (*__kaboom)[sizeof(touch_usbHidReportDescriptor)] = 1;
+typedef char assertion_right_size[(sizeof(touch_usbHidReportDescriptor)==USB_CFG_HID_REPORT_DESCRIPTOR_LENGTH)*2-1];
 
+typedef struct report_t{
+	union {
+		struct {
+			uint8_t tip:1;
+			uint8_t in_range:1;
+			uint8_t confidence:1;
+			uint8_t pad:4;
+			uint8_t dirty:1;
+		} bits;
+		uint8_t byte;
+	} tip;
+	uint16_t x;
+	uint16_t y;
+};
+static report_t reportBuffer;
+
+#define TIP_BIT 0
+#define IN_RANGE_BIT 1
+#define CONFIDENCE_BIT 2
 
 #define USBDESCR_DEVICE					1
-
 const unsigned char usbDescrDevice[] PROGMEM = {		/* USB device descriptor */
 		18,					/* sizeof(usbDescrDevice): length of descriptor in bytes */
 		USBDESCR_DEVICE,		/* descriptor type */
@@ -122,55 +116,31 @@ const unsigned char usbDescrDevice[] PROGMEM = {		/* USB device descriptor */
 #endif
 		1,					/* number of configurations */
 };
-
-
-void buildReport(unsigned char *reportBuf) {
-	if (reportBuf != NULL) {
-		memcpy(reportBuf, last_built_report, REPORT_SIZE);
-	}
-	
-	memcpy(last_sent_report, last_built_report, REPORT_SIZE); 
-}
-
-void clearMove() {
-	// because we send deltas in movement, so when we send them, we clear them
-	last_built_report[1] = 0;
-	last_built_report[2] = 0;
-	last_built_report[3] = 0;
-	last_sent_report[1] = 0;
-	last_sent_report[2] = 0;
-	last_sent_report[3] = 0;
-}
-	
-
-
-
-
  
 class DigiTouchDevice {
+ unsigned long last_report_time;
+ report_t report;
  public:
 	DigiTouchDevice () {
-
-		rt_usbHidReportDescriptor = mouse_usbHidReportDescriptor;
-		rt_usbHidReportDescriptorSize = sizeof(mouse_usbHidReportDescriptor);
-		rt_usbDeviceDescriptor = usbDescrDevice;
-		rt_usbDeviceDescriptorSize = sizeof(usbDescrDevice);
+		//rt_usbHidReportDescriptor = touch_usbHidReportDescriptor;
+		//rt_usbHidReportDescriptorSize = sizeof(touch_usbHidReportDescriptor);
+		//rt_usbDeviceDescriptor = usbDescrDevice;
+		//rt_usbDeviceDescriptorSize = sizeof(usbDescrDevice);
+		report.x = 0;
+		report.y = 0;
+		report.tip.byte = 0;
 	}
 
 	void begin() {
 		cli();
 		usbDeviceDisconnect();
 		_delay_ms(200);
-		usbDeviceConnect();	
-		
-		usbInit();
-		
+		usbDeviceConnect();			
+		usbInit();		
 		sei();
 		last_report_time = millis();
 	}
-	
 
-	
 	void refresh() {
 		update();
 	}
@@ -178,35 +148,24 @@ class DigiTouchDevice {
 	void poll() {
 		update();
 	}
-
 	
 	void update() {
-		usbPoll();
-		
+		usbPoll();		
 		// instead of above code, use millis arduino system to enforce minimum reporting frequency
 		unsigned long time_since_last_report = millis() - last_report_time;
 		if (time_since_last_report >= (idle_rate * 4 /* in units of 4ms - usb spec stuff */)) {
 			last_report_time += idle_rate * 4;
-			must_report = 1;
+			report.tip.bits.dirty = 1;
 		}
-		
-		// if the report has changed, try force an update anyway
-		if (memcmp(last_built_report, last_sent_report, REPORT_SIZE)) {
-			must_report = 1;
-		}
-		
 		// if we want to send a report, signal the host computer to ask us for it with a usb 'interrupt'
-		if (must_report) {
+		if (report.tip.bits.dirty) {
 			if (usbInterruptIsReady()) {
-				must_report = 0;
-				buildReport(reportBuffer); // put data into reportBuffer
-				clearMove(); // clear deltas
-				usbSetInterrupt(reportBuffer, REPORT_SIZE);
+				report.tip.bits.dirty=0;
+				memcpy(&reportBuffer,&report,sizeof(report_t));
+				usbSetInterrupt((uchar *)&reportBuffer, sizeof(report_t));
 			}
 		}
-	}
-	
-	// delay while updating until we are finished
+	}	
 	void delay(long milli) {
 		unsigned long last = millis();
 	  while (milli > 0) {
@@ -217,64 +176,12 @@ class DigiTouchDevice {
 	  }
 	}
 	
-	void moveX(char deltaX)	{
-		if (deltaX == -128) deltaX = -127;
-		last_built_report[1] = *(reinterpret_cast<unsigned char *>(&deltaX));
+	void moveTo(uint16_t X, uint16_t Y, uint8_t T) {
+		report.x = X;
+		report.y = Y;
+		report.tip.byte = T|0x80; // sets dirty bit
 	}
-	
-	void moveY(char deltaY) {
-		if (deltaY == -128) deltaY = -127;
-		last_built_report[2] = *(reinterpret_cast<unsigned char *>(&deltaY));
-	}
-	
-	void scroll(char deltaS)	{
-		if (deltaS == -128) deltaS = -127;
-		last_built_report[3] = *(reinterpret_cast<unsigned char *>(&deltaS));	 
-	}
-	
-	void move(char deltaX, char deltaY, char deltaS) {
-		if (deltaX == -128) deltaX = -127;
-		if (deltaY == -128) deltaY = -127;
-		if (deltaS == -128) deltaS = -127;
-		last_built_report[1] = *(reinterpret_cast<unsigned char *>(&deltaX));
-		last_built_report[2] = *(reinterpret_cast<unsigned char *>(&deltaY));
-		last_built_report[3] = *(reinterpret_cast<unsigned char *>(&deltaS));
-	}
-
-	void move(char deltaX, char deltaY, char deltaS, char buttons) {
-		if (deltaX == -128) deltaX = -127;
-		if (deltaY == -128) deltaY = -127;
-		if (deltaS == -128) deltaS = -127;
-		last_built_report[0] = buttons;
-		last_built_report[1] = *(reinterpret_cast<unsigned char *>(&deltaX));
-		last_built_report[2] = *(reinterpret_cast<unsigned char *>(&deltaY));
-		last_built_report[3] = *(reinterpret_cast<unsigned char *>(&deltaS));
-	}
-
-	void rightClick(){
-		last_built_report[0] = MOUSEBTN_RIGHT_MASK;
-	}
-
-	void leftClick(){
-		last_built_report[0] = MOUSEBTN_RIGHT_MASK;
-	}
-	
-	void middleClick(){
-		last_built_report[0] = MOUSEBTN_RIGHT_MASK;
-	}
-	
-	void setButtons(unsigned char buttons) {
-		last_built_report[0] = buttons;
-	}
-	
-	void setValues(unsigned char values[]) {
-		memcpy(last_built_report, values, REPORT_SIZE);
-	}
-	
-	//private: TODO: Make friend?
-	// what does this even mean? -- Bluebie
 };
-
 // create the global singleton DigiTouch
 DigiTouchDevice DigiTouch = DigiTouchDevice();
 
@@ -282,19 +189,14 @@ DigiTouchDevice DigiTouch = DigiTouchDevice();
 #ifdef __cplusplus
 extern "C"{
 #endif 
-	// USB_PUBLIC uchar usbFunctionSetup
-	
+	// USB_PUBLIC uchar usbFunctionSetup	
 	uchar usbFunctionSetup(uchar data[8]) {
-		usbRequest_t *rq = (usbRequest_t *)data;
-	
-		usbMsgPtr = reportBuffer;
-	
+		usbRequest_t *rq = (usbRequest_t *)data;	
 		if ((rq->bmRequestType & USBRQ_TYPE_MASK) == USBRQ_TYPE_CLASS) {		/* class request type */
 			if (rq->bRequest == USBRQ_HID_GET_REPORT) {	 /* wValue: ReportType (highbyte), ReportID (lowbyte) */
 				/* we only have one report type, so don't look at wValue */
-				//curGamepad->buildReport(reportBuffer);
-				//return curGamepad->report_size;
-				return REPORT_SIZE;
+				usbMsgPtr = (uchar *)&reportBuffer;
+				return sizeof(report_t);
 			} else if (rq->bRequest == USBRQ_HID_GET_IDLE) {
 				usbMsgPtr = &idle_rate;
 				return 1;
@@ -316,23 +218,18 @@ extern "C"{
 			// USB spec 9.4.3, high byte is descriptor type
 			switch (rq->wValue.bytes[1]) {
 				case USBDESCR_DEVICE:
-					usbMsgPtr = rt_usbDeviceDescriptor;
-					return rt_usbDeviceDescriptorSize;
-					break;
-
+					usbMsgPtr = usbDescrDevice;
+					return sizeof(usbDescrDevice);
 				case USBDESCR_HID_REPORT:
-					usbMsgPtr = rt_usbHidReportDescriptor;
-					return rt_usbHidReportDescriptorSize;
-					break;
+					usbMsgPtr = touch_usbHidReportDescriptor;
+					return sizeof(touch_usbHidReportDescriptor);
 			}
 		}
-
 		return 0;
 	}
 
 #ifdef __cplusplus
 } // extern "C"
 #endif
-
 
 #endif // __DigiTouch_h__
